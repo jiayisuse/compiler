@@ -1,5 +1,5 @@
-#ifndef CRADLE_H
-#define CRADLE_H
+#ifndef IO_H
+#define IO_H
 
 #include <stdio.h>
 #include <stdlib.h>
