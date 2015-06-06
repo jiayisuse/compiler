@@ -8,7 +8,7 @@ void add()
 	match('+');
 	term();
 	emit_n("POP\t%%ebx");
-	emit_n("ADD\t%%ebx, %%eax")
+	emit_n("ADD\t%%ebx, %%eax");
 }
 
 /* recognize and translate SUB operation */

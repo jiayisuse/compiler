@@ -21,11 +21,11 @@
 
 /* output message with a leading tab */
 #define emit(FMT, ...)				\
-	printf("\t"FMT, ##__VA_ARGS__);		\
+	printf("\t"FMT, ##__VA_ARGS__)		\
 
 /* output message with a leading tab and a newline */
 #define emit_n(FMT, ...)			\
-	printf("\t"FMT"\n", ##__VA_ARGS__);
+	printf("\t"FMT"\n", ##__VA_ARGS__)
 
 
 extern char look;

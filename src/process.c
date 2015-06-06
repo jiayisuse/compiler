@@ -5,10 +5,15 @@
 /* parse and translate a math factor */
 void factor()
 {
-	emit_n("MOV\t$%c, %%eax", get_num());
+	if (look == '(') {
+		match('(');
+		expression();
+		match(')');
+	} else
+		emit_n("MOV\t$%c, %%eax", get_num());
 }
 
-/* parse and translate a math expression */
+/* parse and translate a mul/div expression */
 void term()
 {
 	factor();
@@ -27,11 +32,14 @@ void term()
 	}
 }
 
-
-/* parse and translate an expression */
+/* parse and translate an math expression */
 void expression()
 {
-	term();
+	if (is_addop(look))
+		emit_n("XOR\t%%eax, %%eax");
+	else
+		term();
+
 	while (is_addop(look)) {
 		emit_n("PUSH\t%%eax");
 		switch (look) {
