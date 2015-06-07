@@ -4,5 +4,6 @@
 void factor();
 void term();
 void expression();
+void assignment();
 
 #endif

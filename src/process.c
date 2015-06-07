@@ -2,6 +2,19 @@
 #include "io.h"
 #include "operation.h"
 
+static void ident()
+{
+	char name = get_name();
+	if (look == '(') {
+		match('(');
+		match(')');
+		emit_n("CALL\t%c", name);
+	} else {
+		emit_n("MOV\t%c, %%edx", name);
+		emit_n("MOV\t(%%edx), %%eax");
+	}
+}
+
 /* parse and translate a math factor */
 void factor()
 {
@@ -9,6 +22,8 @@ void factor()
 		match('(');
 		expression();
 		match(')');
+	} else if (isalpha(look)) {
+		ident();
 	} else
 		emit_n("MOV\t$%c, %%eax", get_num());
 }
@@ -53,4 +68,14 @@ void expression()
 			expected("add/sub operation");
 		}
 	}
+}
+
+/* parse and translate an assignment experssion */
+void assignment()
+{
+	char name = get_name();
+	match('=');
+	expression();
+	emit_n("MOV\t%c, %%edx", name);
+	emit_n("MOV\t%%eax, (%%edx)");
 }

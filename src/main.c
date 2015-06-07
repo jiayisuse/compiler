@@ -6,6 +6,8 @@ char look;
 int main()
 {
 	init();
-	expression();
+	assignment();
+	if (look == '\n')
+		expected("New Line");
 	return 0;
 }

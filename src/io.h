@@ -85,7 +85,7 @@ static inline bool is_mulop(char c)
 /* read an identifier */
 static inline char get_name()
 {
-	char c = toupper(look);
+	char c = look;
 	if (!isalpha(look))
 		expected("name");
 	else
