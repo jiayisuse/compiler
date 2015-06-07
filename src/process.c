@@ -4,13 +4,14 @@
 
 static void ident()
 {
-	char name = get_name();
+	char name[NAME_MAX];
+	get_name(name);
 	if (look == '(') {
 		match('(');
 		match(')');
-		emit_n("CALL\t%c", name);
+		emit_n("CALL\t%s", name);
 	} else {
-		emit_n("MOV\t%c, %%edx", name);
+		emit_n("MOV\t%s, %%edx", name);
 		emit_n("MOV\t(%%edx), %%eax");
 	}
 }
@@ -24,8 +25,11 @@ void factor()
 		match(')');
 	} else if (isalpha(look)) {
 		ident();
-	} else
-		emit_n("MOV\t$%c, %%eax", get_num());
+	} else {
+		char num_str[NUM_MAX];
+		get_num(num_str);
+		emit_n("MOV\t$%s, %%eax", num_str);
+	}
 }
 
 /* parse and translate a mul/div expression */
@@ -73,9 +77,10 @@ void expression()
 /* parse and translate an assignment experssion */
 void assignment()
 {
-	char name = get_name();
+	char name[NAME_MAX];
+	get_name(name);
 	match('=');
 	expression();
-	emit_n("MOV\t%c, %%edx", name);
+	emit_n("MOV\t%s, %%edx", name);
 	emit_n("MOV\t%%eax, (%%edx)");
 }

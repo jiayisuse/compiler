@@ -6,11 +6,11 @@
 #include <stdbool.h>
 #include <ctype.h>
 
-#define _debug(FMT, ...)						\
-	do {								\
-		if (debug)						\
-			printf("Debug:  "FMT, ##__VA_ARGS__);		\
-	} while (0)
+#define NAME_MAX	1024
+#define NUM_MAX		21
+
+#define _debug(FMT, ...)					\
+		printf("Debug:  "FMT, ##__VA_ARGS__)
 
 #define _error(FMT, ...)						\
 	do {								\
@@ -29,6 +29,9 @@
 
 
 extern char look;
+
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+static const char NAME_EXTRA_CHAR[] = { '_' };
 
 /* report an error */
 static inline void error(const char *str)
@@ -50,28 +53,6 @@ static inline void expected(const char *str)
 	exit(1);
 }
 
-/* read a char */
-static inline void getchar_x()
-{
-	look = getchar();
-	if (ferror(stdin))
-		fail("stdin error");
-	if (feof(stdin))
-		error("stdin reaches EOF");
-}
-
-/* math a specific input character */
-static inline void match(char c)
-{
-	char str[4] = { '\'', '\0', '\'' };
-	if (look == c)
-		getchar_x();
-	else {
-		str[1] = c;
-		expected(str);
-	}
-}
-
 static inline bool is_addop(char c)
 {
 	return c == '+' || c == '-';
@@ -82,32 +63,91 @@ static inline bool is_mulop(char c)
 	return c == '*' || c == '/';
 }
 
-/* read an identifier */
-static inline char get_name()
+static inline bool is_name_char(char c)
 {
-	char c = look;
+	int i;
+	
+	if (isalnum(c))
+		return true;
+
+	for (i = 0; i < ARRAY_SIZE(NAME_EXTRA_CHAR); i++)
+		if (c == NAME_EXTRA_CHAR[i])
+			return true;
+	return false;
+}
+
+/* read a char */
+static inline void getchar_x()
+{
+	look = getchar();
+	if (ferror(stdin))
+		fail("stdin error");
+	if (feof(stdin))
+		error("stdin reaches EOF");
+}
+
+static inline void skip_space()
+{
+	while (isspace(look) && look != 10)
+		getchar_x();
+}
+
+/* math a specific input character */
+static inline void match(char c)
+{
+	if (look != c) {
+		char str[4] = { '\'', '\0', '\'' };
+		str[1] = c;
+		expected(str);
+	}
+
+	getchar_x();
+	skip_space();
+}
+
+/* read an identifier */
+static inline void get_name(char *name_buf)
+{
+	int i;
+
 	if (!isalpha(look))
 		expected("name");
-	else
+
+	for (i = 0; is_name_char(look); i++) {
+		if (i == NAME_MAX - 1)
+			fail("name is too long");
+		name_buf[i] = look;
 		getchar_x();
-	return c;
+	}
+	name_buf[i] = '\0';
+
+	skip_space();
 }
 
 /* read a number */
-static inline char get_num()
+static inline void get_num(char *num_buf)
 {
-	char c = look;
+	int i;
+
 	if (!isdigit(look))
 		expected("integer");
-	else
+
+	for (i = 0; isdigit(look); i++) {
+		if (i == NUM_MAX - 1)
+			fail("number is too long");
+		num_buf[i] = look;
 		getchar_x();
-	return c;
+	}
+	num_buf[i] = '\0';
+
+	skip_space();
 }
 
 /* initialize */
 static inline void init()
 {
 	getchar_x();
+	skip_space();
 }
 
 #endif
