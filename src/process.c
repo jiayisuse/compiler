@@ -1,6 +1,15 @@
+#include <string.h>
+
 #include "process.h"
 #include "io.h"
 #include "operation.h"
+
+
+#define LABEL_LEN	12
+
+extern char token[NAME_MAX];
+
+static int label_count = 0;
 
 static void ident()
 {
@@ -83,4 +92,68 @@ void assignment()
 	expression();
 	emit_n("MOV\t%s, %%edx", name);
 	emit_n("MOV\t%%eax, (%%edx)");
+}
+
+
+char *new_label(char *label)
+{
+	sprintf(label, "L%03d", label_count++);
+	return label;
+}
+
+void post_label(const char *label)
+{
+	printf("%s:\n", label);
+}
+
+void condition()
+{
+	emit_n("<condition>");
+}
+
+void do_if()
+{
+	char label_false[LABEL_LEN], label_end[LABEL_LEN];
+
+	token_match("if");
+	new_label(label_false);
+	condition();
+	emit_n("JEQ\t%s", label_false);
+	block();
+	if (strcmp(token, "else") == 0) {
+		new_label(label_end);
+		emit_n("JMP\t%s", label_end);
+		post_label(label_false);
+		block();
+		strcpy(label_false, label_end);
+	}
+	token_match("endif");
+	post_label(label_false);
+}
+
+void other()
+{
+	emit_n("%s", token);
+}
+
+void block()
+{
+	for (get_token();
+			memcmp(token, "else", 4) &&
+			memcmp(token, "endif", 6) &&
+			memcmp(token, "end", 4);
+			get_token()) {
+		if (strcmp(token, "if") == 0)
+			do_if();
+		else
+			other();
+	}
+}
+
+void do_program()
+{
+	block();
+	token_match("end");
+	emit_n("end");
+
 }
