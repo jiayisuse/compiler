@@ -38,10 +38,11 @@
 
 extern char look;
 extern char token[NAME_MAX];
+extern char next_token[NAME_MAX];
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 static const char NAME_EXTRA_CHAR[] = { '_' };
-static const char SEPARATORS[] = { '+', '-', '*', '/', '=', '(', ')' };
+static const char SEPARATORS[] = { '+', '-', '*', '/', '=', '(', ')', '{', '}', ';' };
 
 /* report an error */
 static inline void error(const char *str)
@@ -85,8 +86,10 @@ static inline void getchar_x()
 	look = getchar();
 	if (ferror(stdin))
 		fail("stdin error");
+	/*
 	if (feof(stdin))
-		error("stdin reaches EOF");
+		fail("stdin reaches EOF");
+	*/
 }
 
 static inline void skip_space()
@@ -112,7 +115,12 @@ static inline char *get_token()
 {
 	int i = 0;
 
-	skip_space();
+	if (next_token[0] != '\0') {
+		strcpy(token, next_token);
+		next_token[0] = '\0';
+		return token;
+	}
+
 	token[i++] = look;
 	getchar_x();
 	if (is_separator(token[0]))
@@ -127,8 +135,37 @@ static inline char *get_token()
 
 out:
 	token[i] = '\0';
+	skip_space();
 
 	return token;
+}
+
+static inline char *look_forward()
+{
+	int i = 0;
+
+	next_token[i++] = look;
+	getchar_x();
+	if (is_separator(next_token[0]))
+		goto out;
+
+	while (i < NAME_MAX - 1) {
+		if (is_separator(look))
+			break;
+		next_token[i++] = look;
+		getchar_x();
+	}
+
+out:
+	next_token[i] = '\0';
+	skip_space();
+
+	return next_token;
+}
+
+static inline void step_forward()
+{
+	next_token[0] = '\0';
 }
 
 /* match a specific input character */
@@ -147,6 +184,13 @@ static inline void token_match(const char *str)
 {
 	if (strcmp(token, str) != 0)
 		expected("\"%s\"", str);
+}
+
+/* match a specific input token with a char */
+static inline void token_match_char(char c)
+{
+	if (token[0] != c || token[1] != '\0')
+		expected("'%c'", c);
 }
 
 /* read an identifier */

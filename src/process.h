@@ -5,7 +5,7 @@ void factor();
 void term();
 void expression();
 void assignment();
-void block();
+void block(char ending);
 void do_program();
 
 #endif

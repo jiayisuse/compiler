@@ -6,8 +6,10 @@
 
 
 #define LABEL_LEN	12
+#define LINE_ENDING	';'
 
 extern char token[NAME_MAX];
+extern char pre_token[NAME_MAX];
 
 static int label_count = 0;
 
@@ -109,40 +111,70 @@ void post_label(const char *label)
 void condition()
 {
 	emit_n("<condition>");
+	get_token();
+	token_match("(");
+	for (get_token(); memcmp(token, ")", 2) != 0; get_token()) {
+		emit_n("%s", token);
+	}
+	emit_n("<condition>");
 }
 
 void do_if()
 {
+	char *token_forward;
 	char label_false[LABEL_LEN], label_end[LABEL_LEN];
+	char block_ending = LINE_ENDING;
 
 	token_match("if");
+
 	new_label(label_false);
 	condition();
+
+	if (look == '{') {
+		get_token();
+		block_ending = '}';
+	}
+
 	emit_n("JEQ\t%s", label_false);
-	block();
-	if (strcmp(token, "else") == 0) {
+	block(block_ending);
+
+	token_forward = look_forward();
+	if (strcmp(token_forward, "else") == 0) {
+		step_forward();
+		if (look == '{') {
+			get_token();
+			block_ending = '}';
+		} else
+			block_ending = LINE_ENDING;
 		new_label(label_end);
 		emit_n("JMP\t%s", label_end);
 		post_label(label_false);
-		block();
+		block(block_ending);
 		strcpy(label_false, label_end);
 	}
-	token_match("endif");
+	token_match_char(block_ending);
 	post_label(label_false);
 }
 
 void do_while()
 {
 	char label_loop[LABEL_LEN], label_end[LABEL_LEN];
+	char block_ending = LINE_ENDING;
 
 	token_match("while");
 	new_label(label_loop);
 	new_label(label_end);
 	post_label(label_loop);
 	condition();
+
+	if (look == '{') {
+		get_token();
+		block_ending = '}';
+	}
+
 	emit_n("JEQ\t%s", label_end);
-	block();
-	token_match("endwhile");
+	block(block_ending);
+	token_match_char(block_ending);
 	emit_n("JMP\t%s", label_loop);
 	post_label(label_end);
 }
@@ -152,14 +184,9 @@ void other()
 	emit_n("%s", token);
 }
 
-void block()
+void block(char ending)
 {
-	for (get_token();
-			memcmp(token, "else", 4) &&
-			memcmp(token, "endif", 6) &&
-			memcmp(token, "endwhile", 6) &&
-			memcmp(token, "end", 4);
-			get_token()) {
+	for (get_token(); token[0] != ending && look != EOF; get_token()) {
 		if (strcmp(token, "if") == 0)
 			do_if();
 		else if (strcmp(token, "while") == 0)
@@ -171,8 +198,6 @@ void block()
 
 void do_program()
 {
-	block();
-	token_match("end");
-	emit_n("end");
-
+	while (look != EOF)
+		block(LINE_ENDING);
 }

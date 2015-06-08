@@ -4,6 +4,7 @@
 
 char look;
 char token[NAME_MAX];
+char next_token[NAME_MAX];
 
 int main()
 {
