@@ -179,6 +179,35 @@ void do_while()
 	post_label(label_end);
 }
 
+void do_dowhile()
+{
+	char label_loop[LABEL_LEN];
+	char block_ending = LINE_ENDING;
+	char *token_forward;
+
+	_debug("hahah\n");
+
+	token_match("do");
+	post_label(new_label(label_loop));
+
+	if (look == '{') {
+		get_token();
+		block_ending = '}';
+	}
+
+	block(block_ending);
+	token_match_char(block_ending);
+
+	token_forward = look_forward();
+	if (strcmp(token_forward, "while") == 0) {
+		step_forward();
+		condition();
+		emit_n("JNE\t%s", label_loop);
+		match(LINE_ENDING);
+	} else
+		expected("\"while\" for \"do\"");
+}
+
 void other()
 {
 	emit_n("%s", token);
@@ -191,6 +220,8 @@ void block(char ending)
 			do_if();
 		else if (strcmp(token, "while") == 0)
 			do_while();
+		else if (strcmp(token, "do") == 0)
+			do_dowhile();
 		else
 			other();
 	}
