@@ -131,6 +131,22 @@ void do_if()
 	post_label(label_false);
 }
 
+void do_while()
+{
+	char label_loop[LABEL_LEN], label_end[LABEL_LEN];
+
+	token_match("while");
+	new_label(label_loop);
+	new_label(label_end);
+	post_label(label_loop);
+	condition();
+	emit_n("JEQ\t%s", label_end);
+	block();
+	token_match("endwhile");
+	emit_n("JMP\t%s", label_loop);
+	post_label(label_end);
+}
+
 void other()
 {
 	emit_n("%s", token);
@@ -141,10 +157,13 @@ void block()
 	for (get_token();
 			memcmp(token, "else", 4) &&
 			memcmp(token, "endif", 6) &&
+			memcmp(token, "endwhile", 6) &&
 			memcmp(token, "end", 4);
 			get_token()) {
 		if (strcmp(token, "if") == 0)
 			do_if();
+		else if (strcmp(token, "while") == 0)
+			do_while();
 		else
 			other();
 	}
