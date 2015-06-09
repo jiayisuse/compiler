@@ -8,10 +8,13 @@
 #define LABEL_LEN	12
 #define LINE_ENDING	';'
 
+#define TMP_FILE	".tmp.parser"
+
 extern char token[NAME_MAX];
 extern char pre_token[NAME_MAX];
 
 static int label_count = 0;
+static int for_file_count = 0;
 
 static void ident()
 {
@@ -22,8 +25,8 @@ static void ident()
 		match(')');
 		emit_n("CALL\t%s", name);
 	} else {
-		emit_n("MOV\t%s, %%edx", name);
-		emit_n("MOV\t(%%edx), %%eax");
+		emit_n("LEAL\t%s, %%edx", name);
+		emit_n("MOVL\t(%%edx), %%eax");
 	}
 }
 
@@ -39,7 +42,7 @@ void factor()
 	} else {
 		char num_str[NUM_MAX];
 		get_num(num_str);
-		emit_n("MOV\t$%s, %%eax", num_str);
+		emit_n("MOVL\t$%s, %%eax", num_str);
 	}
 }
 
@@ -92,31 +95,36 @@ void assignment()
 	get_name(name);
 	match('=');
 	expression();
-	emit_n("MOV\t%s, %%edx", name);
-	emit_n("MOV\t%%eax, (%%edx)");
+	emit_n("LEAL\t%s, %%edx", name);
+	emit_n("MOVL\t%%eax, (%%edx)");
 }
 
 
-char *new_label(char *label)
+static inline char *new_label(char *label)
 {
 	sprintf(label, "L%03d", label_count++);
 	return label;
 }
 
-void post_label(const char *label)
+static inline void post_label(const char *label)
 {
 	printf("%s:\n", label);
 }
 
+static inline char *new_for_file(char *file_name)
+{
+	sprintf(file_name, "%s.%d", TMP_FILE, for_file_count++);
+	return file_name;
+}
+
 void condition()
 {
-	emit_n("<condition>");
-	get_token();
-	token_match("(");
-	for (get_token(); memcmp(token, ")", 2) != 0; get_token()) {
-		emit_n("%s", token);
-	}
-	emit_n("<condition>");
+	emit_n("--- <condition> ---");
+	match('(');
+	for (get_token(); memcmp(token, ")", 2) != 0; get_token())
+		emit("%s ", token);
+	emit_n("");
+	emit_n("END <condition>");
 }
 
 void do_if()
@@ -185,8 +193,6 @@ void do_dowhile()
 	char block_ending = LINE_ENDING;
 	char *token_forward;
 
-	_debug("hahah\n");
-
 	token_match("do");
 	post_label(new_label(label_loop));
 
@@ -208,6 +214,126 @@ void do_dowhile()
 		expected("\"while\" for \"do\"");
 }
 
+static void parse_for_init()
+{
+	char name[NAME_MAX];
+
+	match('(');
+
+	if (look == ';') {
+		match(';');
+		return;
+	}
+
+	get_name(name);
+	if (look == '=') {
+		match('=');
+		expression();
+		emit_n("LEAL\t%s, %%edx", name);
+		emit_n("MOVL\t%%eax, (%%edx)");
+	} else if (look == '(') {
+		match('(');
+		match(')');
+		emit_n("CALL\t%s", name);
+	}
+	match(';');
+}
+
+static void parse_for_condition(const char *label_loop, const char *label_end)
+{
+	if (look == ';') {
+		match(';');
+		return;
+	}
+
+	post_label(label_loop);
+
+	emit_n("for <condition> ---");
+	for (get_token(); token[0] != ';'; get_token())
+		emit("%s ", token);
+	emit_n("");
+	emit_n("END <condition>");
+	token_match_char(LINE_ENDING);
+
+	emit_n("JEQ\t%s", label_end);
+}
+
+static FILE *file_for_repeat()
+{
+	int i;
+	char file_name[NAME_MAX];
+	FILE *fp = fopen(new_for_file(file_name), "w+");
+
+	for (i = 0; i < MAX_LINE - 1; i++) {
+		if (look == ')') {
+			match(')');
+			goto out;
+		}
+		fputc(look, fp);
+		getchar_x();
+	}
+	fail("repeat buffer is not big enough");
+out:
+	return fp;
+}
+
+static void parse_for_repeat(FILE *fp,
+		const char *label_loop,
+		const char *label_end)
+{
+	char name[NAME_MAX];
+	FILE *stdin_back = stdin;
+	char c = look;
+
+	rewind(fp);
+	stdin = fp;
+	init();
+	get_name(name);
+	if (name[0] == '\0')
+		goto out;
+	if (look == '=') {
+		match('=');
+		expression();
+		emit_n("LEAL\t%s, %%edx", name);
+		emit_n("MOVL\t%%eax, (%%edx)");
+	} else if (look == '(') {
+		match('(');
+		match(')');
+		emit_n("CALL\t%s", name);
+	}
+out:
+	stdin = stdin_back;
+	look = c;
+	emit_n("JMP\t%s", label_loop);
+	post_label(label_end);
+	emit_n();
+}
+
+void do_for()
+{
+	char label_loop[LABEL_LEN], label_end[LABEL_LEN];
+	char block_ending = LINE_ENDING;
+	FILE *fp;
+
+	token_match("for");
+
+	new_label(label_loop);
+	new_label(label_end);
+
+	parse_for_init();
+	parse_for_condition(label_loop, label_end);
+	fp = file_for_repeat();
+
+	if (look == '{') {
+		match('{');
+		block_ending = '}';
+	}
+
+	block(block_ending);
+
+	parse_for_repeat(fp, label_loop, label_end);
+}
+
 void other()
 {
 	emit_n("%s", token);
@@ -222,6 +348,8 @@ void block(char ending)
 			do_while();
 		else if (strcmp(token, "do") == 0)
 			do_dowhile();
+		else if (strcmp(token, "for") == 0)
+			do_for();
 		else
 			other();
 	}
