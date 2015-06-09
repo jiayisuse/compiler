@@ -127,7 +127,7 @@ void condition()
 	emit_n("END <condition>");
 }
 
-void do_if()
+void do_if(const char *label_continue, const char *label_break)
 {
 	char *token_forward;
 	char label_false[LABEL_LEN], label_end[LABEL_LEN];
@@ -144,7 +144,7 @@ void do_if()
 	}
 
 	emit_n("JEQ\t%s", label_false);
-	block(block_ending);
+	block(block_ending, label_continue, label_break);
 
 	token_forward = look_forward();
 	if (strcmp(token_forward, "else") == 0) {
@@ -157,7 +157,7 @@ void do_if()
 		new_label(label_end);
 		emit_n("JMP\t%s", label_end);
 		post_label(label_false);
-		block(block_ending);
+		block(block_ending, label_continue, label_break);
 		strcpy(label_false, label_end);
 	}
 	token_match_char(block_ending);
@@ -181,7 +181,7 @@ void do_while()
 	}
 
 	emit_n("JEQ\t%s", label_end);
-	block(block_ending);
+	block(block_ending, label_loop, label_end);
 	token_match_char(block_ending);
 	emit_n("JMP\t%s", label_loop);
 	post_label(label_end);
@@ -189,19 +189,20 @@ void do_while()
 
 void do_dowhile()
 {
-	char label_loop[LABEL_LEN];
+	char label_loop[LABEL_LEN], label_end[LABEL_LEN];
 	char block_ending = LINE_ENDING;
 	char *token_forward;
 
 	token_match("do");
 	post_label(new_label(label_loop));
+	new_label(label_end);
 
 	if (look == '{') {
 		get_token();
 		block_ending = '}';
 	}
 
-	block(block_ending);
+	block(block_ending, label_loop, label_end);
 	token_match_char(block_ending);
 
 	token_forward = look_forward();
@@ -209,6 +210,7 @@ void do_dowhile()
 		step_forward();
 		condition();
 		emit_n("JNE\t%s", label_loop);
+		post_label(label_end);
 		match(LINE_ENDING);
 	} else
 		expected("\"while\" for \"do\"");
@@ -260,20 +262,14 @@ static void parse_for_condition(const char *label_loop, const char *label_end)
 
 static FILE *file_for_repeat()
 {
-	int i;
 	char file_name[NAME_MAX];
 	FILE *fp = fopen(new_for_file(file_name), "w+");
 
-	for (i = 0; i < MAX_LINE - 1; i++) {
-		if (look == ')') {
-			match(')');
-			goto out;
-		}
+	while (look != ')') {
 		fputc(look, fp);
 		getchar_x();
 	}
-	fail("repeat buffer is not big enough");
-out:
+	match(')');
 	return fp;
 }
 
@@ -291,6 +287,9 @@ static void parse_for_repeat(FILE *fp,
 	get_name(name);
 	if (name[0] == '\0')
 		goto out;
+
+	emit_n("%% for repate part");
+
 	if (look == '=') {
 		match('=');
 		expression();
@@ -329,9 +328,25 @@ void do_for()
 		block_ending = '}';
 	}
 
-	block(block_ending);
+	block(block_ending, label_loop, label_end);
 
 	parse_for_repeat(fp, label_loop, label_end);
+}
+
+static inline void do_continue(const char *label_continue)
+{
+	if (label_continue != NULL)
+		emit_n("JMP\t%s", label_continue);
+	else
+		fail("NO loop to continue");
+}
+
+static inline void do_break(const char *label_break)
+{
+	if (label_break != NULL)
+		emit_n("JMP\t%s", label_break);
+	else
+		fail("NO loop to break from");
 }
 
 void other()
@@ -339,17 +354,21 @@ void other()
 	emit_n("%s", token);
 }
 
-void block(char ending)
+void block(char ending, const char *label_continue, const char *label_break)
 {
 	for (get_token(); token[0] != ending && look != EOF; get_token()) {
 		if (strcmp(token, "if") == 0)
-			do_if();
+			do_if(label_continue, label_break);
 		else if (strcmp(token, "while") == 0)
 			do_while();
 		else if (strcmp(token, "do") == 0)
 			do_dowhile();
 		else if (strcmp(token, "for") == 0)
 			do_for();
+		else if (strcmp(token, "continue") == 0)
+			do_continue(label_continue);
+		else if (strcmp(token, "break") == 0)
+			do_break(label_break);
 		else
 			other();
 	}
@@ -358,5 +377,5 @@ void block(char ending)
 void do_program()
 {
 	while (look != EOF)
-		block(LINE_ENDING);
+		block(LINE_ENDING, NULL, NULL);
 }

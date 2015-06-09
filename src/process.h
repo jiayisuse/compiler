@@ -5,7 +5,7 @@ void factor();
 void term();
 void expression();
 void assignment();
-void block(char ending);
+void block(char ending, const char *label_continue, const char *label_break);
 void do_program();
 
 #endif

@@ -171,9 +171,8 @@ static inline void step_forward()
 /* match a specific input character */
 static inline void match(char c)
 {
-	if (look != c) {
+	if (look != c)
 		expected("'%c'", c);
-	}
 
 	getchar_x();
 	skip_space();
