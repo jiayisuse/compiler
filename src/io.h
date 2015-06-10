@@ -10,8 +10,13 @@
 #define NAME_MAX	1024
 #define NUM_MAX		21
 
+#define DEBUG		1
+
 #define _debug(FMT, ...)					\
-		printf("Debug:  "FMT, ##__VA_ARGS__)
+	do {							\
+		if (DEBUG)					\
+			printf("Debug:  "FMT, ##__VA_ARGS__);	\
+	} while (0)
 
 #define _error(FMT, ...)						\
 	do {								\
@@ -31,18 +36,21 @@
 /* report what was expected */
 #define expected(FMT, ...)						\
 	do {								\
-		fprintf(stderr, FMT" is expected\n", ##__VA_ARGS__);	\
+		fprintf(stderr, FMT" is expected at %d\n",		\
+			##__VA_ARGS__, __LINE__);			\
 		exit(1);						\
 	} while (0)
 
 
 extern char look;
+extern char look_back;
 extern char token[NAME_MAX];
 extern char next_token[NAME_MAX];
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 static const char NAME_EXTRA_CHAR[] = { '_' };
-static const char SEPARATORS[] = { '+', '-', '*', '/', '=', '(', ')', '{', '}', ';' };
+static const char SEPARATORS[] = { '+', '-', '*', '/', '=', '(', ')', '{', '}', '!', '>', '<', '|', '&', ';' };
+static const char APPEND_OPERATORS[] = { '+', '-', '=', '|', '&' };
 
 /* report an error */
 static inline void error(const char *str)
@@ -65,6 +73,31 @@ static inline bool is_addop(char c)
 static inline bool is_mulop(char c)
 {
 	return c == '*' || c == '/';
+}
+
+static inline bool is_orop(const char *op)
+{
+	return strcmp(op, "||") == 0;
+}
+
+static inline bool is_notop(const char *op)
+{
+	return strcmp(op, "!") == 0;
+}
+
+static inline bool is_andop(const char *op)
+{
+	return strcmp(op, "&&") == 0;
+}
+
+static inline bool is_relop(const char *op)
+{
+	return strcmp(op, "==") == 0 ||
+		strcmp(op, "!=") == 0 ||
+		strcmp(op, ">") == 0 ||
+		strcmp(op, ">=") == 0 ||
+		strcmp(op, "<") == 0 ||
+		strcmp(op, "<=") == 0;
 }
 
 static inline bool is_name_char(char c)
@@ -111,6 +144,60 @@ static inline bool is_separator(char c)
 	return false;
 }
 
+static inline bool is_append_operator(char c)
+{
+	int i, len;
+
+	if (isspace(c) || isalnum(c))
+		return false;
+
+	for (i = 0, len = ARRAY_SIZE(APPEND_OPERATORS); i < len; i++)
+		if (c == APPEND_OPERATORS[i])
+			return true;
+	return false;
+}
+
+/*
+ * ++, --, +=, -=, *=, /=, ==, !=, <=, >=, &&, ||
+ */
+static inline int append_operator(int i, char *to)
+{
+	switch (to[0]) {
+	case '+':
+	case '-':
+		if (to[0] == look || look == '=') {
+			to[i++] = look;
+			getchar_x();
+		}
+		break;
+
+	case '*':
+	case '/':
+	case '=':
+	case '!':
+	case '>':
+	case '<':
+		if (look == '=') {
+			to[i++] = look;
+			getchar_x();
+		}
+		break;
+
+	case '&':
+	case '|':
+		if (to[0] == look) {
+			to[i++] = look;
+			getchar_x();
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return i;
+}
+
 static inline char *get_token()
 {
 	int i = 0;
@@ -118,6 +205,7 @@ static inline char *get_token()
 	if (next_token[0] != '\0') {
 		strcpy(token, next_token);
 		next_token[0] = '\0';
+		look = look_back;
 		return token;
 	}
 
@@ -134,6 +222,8 @@ static inline char *get_token()
 	}
 
 out:
+	if (i == 1 && is_append_operator(look))
+		i = append_operator(i, token);
 	token[i] = '\0';
 	skip_space();
 
@@ -143,7 +233,12 @@ out:
 static inline char *look_forward()
 {
 	int i = 0;
+	char c;
 
+	if (next_token[0] != '\0')
+		return next_token;
+
+	c = look;
 	next_token[i++] = look;
 	getchar_x();
 	if (is_separator(next_token[0]))
@@ -157,18 +252,19 @@ static inline char *look_forward()
 	}
 
 out:
+	if (i == 1 && is_append_operator(look))
+		i = append_operator(i, next_token);
 	next_token[i] = '\0';
 	skip_space();
+
+	look_back = look;
+	look = c; 
 
 	return next_token;
 }
 
-static inline void step_forward()
-{
-	next_token[0] = '\0';
-}
-
 /* match a specific input character */
+/*
 static inline void match(char c)
 {
 	if (look != c)
@@ -177,61 +273,99 @@ static inline void match(char c)
 	getchar_x();
 	skip_space();
 }
+*/
 
 /* match a specific input token */
-static inline void token_match(const char *str)
+/*
+*/
+
+/* match a specific input token with a char */
+static inline void match(char c)
 {
+	get_token();
+	if (token[0] != c || token[1] != '\0')
+		expected("'%c'", c);
+}
+
+static inline void match_token(const char *str)
+{
+	get_token();
 	if (strcmp(token, str) != 0)
 		expected("\"%s\"", str);
 }
 
-/* match a specific input token with a char */
-static inline void token_match_char(char c)
+static inline bool is_name(char *name, char *buf)
 {
-	if (token[0] != c || token[1] != '\0')
-		expected("'%c'", c);
+	int i;
+
+	if (!isalpha(name[0]))
+		return false;
+
+	for (i = 0; name[i] != '\0' && is_name_char(name[i]); i++)
+		buf[i] = name[i];
+
+	if (name[i] == '\0') {
+		buf[i] = '\0';
+		return true;
+	}
+
+	return false;
+}
+
+static inline bool is_num(char *num, char *buf)
+{
+	int i;
+
+	if (!isdigit(num[0]))
+		return false;
+
+	for (i = 0; num[i] != '\0' && isdigit(num[i]); i++)
+		buf[i] = num[i];
+
+	if (num[i] == '\0') {
+		buf[i] = '\0';
+		return true;
+	}
+
+	return false;
 }
 
 /* read an identifier */
 static inline char *get_name(char *name_buf)
 {
-	int i;
-
-	if (!isalpha(look))
+	get_token();
+	if (is_name(token, name_buf))
+		return name_buf;
+	else
 		expected("name");
 
-	for (i = 0; is_name_char(look); i++) {
-		if (i == NAME_MAX - 1)
-			fail("name is too long");
-		name_buf[i] = look;
-		getchar_x();
-	}
-	name_buf[i] = '\0';
-
-	skip_space();
-
-	return name_buf;
 }
 
 /* read a number */
 static inline char *get_num(char *num_buf)
 {
-	int i;
-
-	if (!isdigit(look))
+	get_token();
+	if (is_num(token, num_buf))
+		return num_buf;
+	else
 		expected("integer");
+}
 
-	for (i = 0; isdigit(look); i++) {
-		if (i == NUM_MAX - 1)
-			fail("number is too long");
-		num_buf[i] = look;
-		getchar_x();
-	}
-	num_buf[i] = '\0';
+static inline bool is_const_boolean(const char *str)
+{
+	return strcmp(str, "true") == 0 ||
+		strcmp(str, "false") == 0;
+}
 
-	skip_space();
-
-	return num_buf;
+static inline bool get_boolean()
+{
+	get_token();
+	if (strcmp(token, "true") == 0)
+		return true;
+	else if (strcmp(token, "false") == 0)
+		return false;
+	else
+		expected("Boolean");
 }
 
 /* initialize */

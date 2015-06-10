@@ -11,7 +11,7 @@
 #define TMP_FILE	".tmp.parser"
 
 extern char token[NAME_MAX];
-extern char pre_token[NAME_MAX];
+extern char next_token[NAME_MAX];
 
 static int label_count = 0;
 static int for_file_count = 0;
@@ -100,6 +100,158 @@ void assignment()
 }
 
 
+/*
+ * boolean processing
+ */
+
+static void is_equal()
+{
+	expression();
+	emit_n("POP\t%%ebx");
+	emit_n("CMP\t%%eax, %%ebx");
+	emit_n("SETE\t%%al");
+	emit_n("MOVSX\t%%al, %%eax");
+}
+
+static void is_notequal()
+{
+	expression();
+	emit_n("POP\t%%ebx");
+	emit_n("CMP\t%%eax, %%ebx");
+	emit_n("SETNE\t%%al");
+	emit_n("MOVSX\t%%al, %%eax");
+}
+
+static void is_greater()
+{
+	expression();
+	emit_n("POP\t%%ebx");
+	emit_n("CMP\t%%eax, %%ebx");
+	emit_n("SETG\t%%al");
+	emit_n("MOVSX\t%%al, %%eax");
+}
+
+static void is_greater_or_equal()
+{
+	expression();
+	emit_n("POP\t%%ebx");
+	emit_n("CMP\t%%eax, %%ebx");
+	emit_n("SETGE\t%%al");
+	emit_n("MOVSX\t%%al, %%eax");
+}
+
+static void is_less()
+{
+	expression();
+	emit_n("POP\t%%ebx");
+	emit_n("CMP\t%%eax, %%ebx");
+	emit_n("SETL\t%%al");
+	emit_n("MOVSX\t%%al, %%eax");
+}
+
+static void is_less_or_equal()
+{
+	expression();
+	emit_n("POP\t%%ebx");
+	emit_n("CMP\t%%eax, %%ebx");
+	emit_n("SETLE\t%%al");
+	emit_n("MOVSX\t%%al, %%eax");
+}
+
+static void bool_relation()
+{
+	char *token_forward;
+	expression();
+
+	token_forward = look_forward();
+	if (is_relop(token_forward)) {
+		get_token();
+		emit_n("PUSH\t%%eax");
+		if (strcmp(token, "==") == 0)
+			is_equal();
+		else if (strcmp(token, "!=") == 0)
+			is_notequal();
+		else if (strcmp(token, ">") == 0)
+			is_greater();
+		else if (strcmp(token, ">=") == 0)
+			is_greater_or_equal();
+		else if (strcmp(token, "<") == 0)
+			is_less();
+		else if (strcmp(token, "<=") == 0)
+			is_less_or_equal();
+		emit_n("TEST\t%%eax, %%eax");
+	}
+}
+
+static void bool_factor()
+{
+	char *token_forward;
+
+	token_forward = look_forward();
+	if (is_const_boolean(token_forward)) {
+		get_token();
+		if (get_boolean())
+			emit_n("MOVL\t$-1, %%eax");
+		else
+			emit_n("XOR\t%%eax, %%eax");
+	} else
+		bool_relation();
+}
+
+static void not_factor()
+{
+	char *token_forward;
+
+	token_forward = look_forward();
+	if (is_notop(token_forward)) {
+		get_token();
+		bool_factor();
+		emit_n("NOTL\t%%eax");
+	} else
+		bool_factor();
+}
+
+static void bool_term()
+{
+	char *token_forward;
+
+	not_factor();
+
+	for (token_forward = look_forward();
+			is_andop(token_forward);
+			token_forward = look_forward()) {
+		get_token();
+		emit_n("PUSH\t%%eax");
+		not_factor();
+		emit_n("POP\t%%ebx");
+		emit_n("ANDL\t%%eax, %%ebx");
+	}
+}
+
+static void bool_or()
+{
+	bool_term();
+	emit_n("POP\t%%ebx");
+	emit_n("ORL\t%%ebx, %%eax");
+}
+
+static void bool_expression(char ending)
+{
+	char *token_forward;
+
+	bool_term();
+
+	for (token_forward = look_forward();
+			is_orop(token_forward);
+			token_forward = look_forward()) {
+		get_token();
+		emit_n("PUSH\t%%eax");
+		bool_or();
+	}
+	match(ending);
+}
+
+
 static inline char *new_label(char *label)
 {
 	sprintf(label, "L%03d", label_count++);
@@ -117,26 +269,15 @@ static inline char *new_for_file(char *file_name)
 	return file_name;
 }
 
-void condition()
-{
-	emit_n("--- <condition> ---");
-	match('(');
-	for (get_token(); memcmp(token, ")", 2) != 0; get_token())
-		emit("%s ", token);
-	emit_n("");
-	emit_n("END <condition>");
-}
-
 void do_if(const char *label_continue, const char *label_break)
 {
 	char *token_forward;
 	char label_false[LABEL_LEN], label_end[LABEL_LEN];
 	char block_ending = LINE_ENDING;
 
-	token_match("if");
-
 	new_label(label_false);
-	condition();
+	match('(');
+	bool_expression(')');
 
 	if (look == '{') {
 		get_token();
@@ -148,7 +289,7 @@ void do_if(const char *label_continue, const char *label_break)
 
 	token_forward = look_forward();
 	if (strcmp(token_forward, "else") == 0) {
-		step_forward();
+		get_token();
 		if (look == '{') {
 			get_token();
 			block_ending = '}';
@@ -160,7 +301,6 @@ void do_if(const char *label_continue, const char *label_break)
 		block(block_ending, label_continue, label_break);
 		strcpy(label_false, label_end);
 	}
-	token_match_char(block_ending);
 	post_label(label_false);
 }
 
@@ -169,11 +309,11 @@ void do_while()
 	char label_loop[LABEL_LEN], label_end[LABEL_LEN];
 	char block_ending = LINE_ENDING;
 
-	token_match("while");
 	new_label(label_loop);
 	new_label(label_end);
 	post_label(label_loop);
-	condition();
+	match('(');
+	bool_expression(')');
 
 	if (look == '{') {
 		get_token();
@@ -182,7 +322,6 @@ void do_while()
 
 	emit_n("JEQ\t%s", label_end);
 	block(block_ending, label_loop, label_end);
-	token_match_char(block_ending);
 	emit_n("JMP\t%s", label_loop);
 	post_label(label_end);
 }
@@ -191,9 +330,7 @@ void do_dowhile()
 {
 	char label_loop[LABEL_LEN], label_end[LABEL_LEN];
 	char block_ending = LINE_ENDING;
-	char *token_forward;
 
-	token_match("do");
 	post_label(new_label(label_loop));
 	new_label(label_end);
 
@@ -203,17 +340,15 @@ void do_dowhile()
 	}
 
 	block(block_ending, label_loop, label_end);
-	token_match_char(block_ending);
 
-	token_forward = look_forward();
-	if (strcmp(token_forward, "while") == 0) {
-		step_forward();
-		condition();
-		emit_n("JNE\t%s", label_loop);
-		post_label(label_end);
-		match(LINE_ENDING);
-	} else
-		expected("\"while\" for \"do\"");
+	match_token("while");
+	match('(');
+	bool_expression(')');
+	_debug("%s %c\n", token, look);
+	emit_n("JNE\t%s", label_loop);
+	post_label(label_end);
+	match(LINE_ENDING);
+	_debug("%s %c\n", token, look);
 }
 
 static void parse_for_init()
@@ -250,12 +385,9 @@ static void parse_for_condition(const char *label_loop, const char *label_end)
 
 	post_label(label_loop);
 
-	emit_n("for <condition> ---");
-	for (get_token(); token[0] != ';'; get_token())
-		emit("%s ", token);
-	emit_n("");
-	emit_n("END <condition>");
-	token_match_char(LINE_ENDING);
+	emit_n("; for <condition> ---");
+	bool_expression(LINE_ENDING);
+	emit_n("; END <condition>");
 
 	emit_n("JEQ\t%s", label_end);
 }
@@ -269,6 +401,7 @@ static FILE *file_for_repeat()
 		fputc(look, fp);
 		getchar_x();
 	}
+	fputc(LINE_ENDING, fp);
 	match(')');
 	return fp;
 }
@@ -288,7 +421,7 @@ static void parse_for_repeat(FILE *fp,
 	if (name[0] == '\0')
 		goto out;
 
-	emit_n("%% for repate part");
+	emit_n("; for repeate part");
 
 	if (look == '=') {
 		match('=');
@@ -313,8 +446,6 @@ void do_for()
 	char label_loop[LABEL_LEN], label_end[LABEL_LEN];
 	char block_ending = LINE_ENDING;
 	FILE *fp;
-
-	token_match("for");
 
 	new_label(label_loop);
 	new_label(label_end);
